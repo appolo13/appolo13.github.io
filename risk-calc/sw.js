@@ -1,5 +1,5 @@
 // KTR 리스크 계산기 서비스워커 — 앱셸 캐싱 (오프라인 동작)
-const CACHE = 'ktr-risk-v5';
+const CACHE = 'ktr-risk-v6';
 const ASSETS = [
   './',
   './index.html',
