@@ -282,8 +282,10 @@ async function fetchPrice(){
   try{
     const r=await fetch(`https://api.gold-api.com/price/${live}`,{cache:'no-store'});
     const d=await r.json();
-    $('entry').value = (+d.price).toFixed(SYMBOLS[sym].dp);
-    $('priceNote').innerHTML = `현재가 <b style="color:var(--gold)">${(+d.price).toFixed(SYMBOLS[sym].dp)}</b> · ${d.updatedAtReadable||'now'}`;
+    const dp=SYMBOLS[sym].dp, price=+d.price;
+    $('entry').value = price.toFixed(dp);
+    $('sl').value = (price - 100).toFixed(dp);   // 손절 기본 -100pt (LONG 가정)
+    $('priceNote').innerHTML = `현재가 <b style="color:var(--gold)">${price.toFixed(dp)}</b> · ${d.updatedAtReadable||'now'} · SL 자동 ${(price-100).toFixed(dp)}`;
     save(); calc();
   }catch(e){
     $('priceNote').textContent='불러오기 실패 (오프라인?) — 수동 입력하세요';
@@ -303,10 +305,19 @@ function load(){
     ['symbol','entry','sl','risk','ktr'].forEach(k=>{ if(s[k]!=null&&s[k]!=='') $(k).value=s[k]; });
     if(Array.isArray(s.checked)) checked=s.checked;
   }catch(e){}
+  // 기본값 (저장값 없을 때만)
+  if(!$('risk').value) $('risk').value = 100;
+  if(!$('ktr').value)  $('ktr').value  = 10;
 }
 
 ['symbol','entry','sl','risk','ktr'].forEach(k=>{
   $(k).addEventListener('input',()=>{ save(); calc(); });
+});
+// 포커스 시 기존값 비우고 바로 숫자 입력 (안 고치고 빠져나가면 복원)
+['entry','sl','risk','ktr'].forEach(k=>{
+  const el=$(k);
+  el.addEventListener('focus',()=>{ el.dataset.prev=el.value; el.value=''; });
+  el.addEventListener('blur',()=>{ if(el.value===''&&el.dataset.prev){ el.value=el.dataset.prev; save(); calc(); } });
 });
 $('symbol').addEventListener('change',()=>{ $('priceNote').textContent=''; });
 $('fetchBtn').addEventListener('click', fetchPrice);
