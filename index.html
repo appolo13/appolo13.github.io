@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12181f">
+<title>도구 모음</title>
+<style>
+  :root{--bg:#0e1116;--panel:#161b22;--line:#2a323d;--txt:#e6edf3;--muted:#8b98a5;--gold:#f0b429}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+  body{padding:max(20px,env(safe-area-inset-top)) 16px 40px;max-width:520px;margin:0 auto}
+  h1{font-size:20px;margin:8px 0 4px}
+  p.sub{color:var(--muted);font-size:13px;margin:0 0 22px}
+  a.tool{display:flex;align-items:center;gap:14px;text-decoration:none;color:var(--txt);
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px}
+  a.tool:active{border-color:var(--gold)}
+  a.tool img{width:52px;height:52px;border-radius:12px;flex:0 0 auto}
+  a.tool .t{font-size:16px;font-weight:600}
+  a.tool .d{font-size:13px;color:var(--muted);margin-top:2px}
+  a.tool .arrow{margin-left:auto;color:var(--muted);font-size:20px}
+  @media (prefers-color-scheme:light){
+    :root{--bg:#f4f6f8;--panel:#fff;--line:#dce1e7;--txt:#1a2028;--muted:#67727e}
+  }
+</style>
+</head>
+<body>
+  <h1>🛠️ 도구 모음</h1>
+  <p class="sub">정적 웹 도구 모음</p>
+
+  <a class="tool" href="./risk-calc/">
+    <img src="./risk-calc/icon-192.png" alt="">
+    <div>
+      <div class="t">KTR 리스크 계산기</div>
+      <div class="d">1·3·5 균등 분할 진입 · 손익 시뮬</div>
+    </div>
+    <div class="arrow">›</div>
+  </a>
+</body>
+</html>
