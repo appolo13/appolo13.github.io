@@ -158,7 +158,8 @@ const round2 = x => Math.round(x*100)/100;
 const fmtUsd = v => (v>=0?'+$':'-$') + Math.abs(Math.round(v)).toLocaleString();
 const cls = v => v>0?'pos':(v<0?'neg':'zero');
 
-let checked = [true,false,false]; // 1,3,5차
+let checked = [true,false,false]; // 1,3,5차 (고정 인덱스)
+const SLOT_IDX = {1:0, 3:1, 5:2};
 let margin = 100;   // 증거금 $ (100 단위)
 let pct = 10;       // 리스크 % (10 단위, 10~50)
 
@@ -183,23 +184,6 @@ function readInputs(){
   };
 }
 
-function tuning(entry, risk, ktr, pt, side, slPt){
-  const se = side==='LONG'?-1:1, out=[];
-  if(slPt > 4*ktr){
-    const minLoss=(3*slPt-6*ktr)*0.01*pt;
-    out.push(['리스크', `≥ $${Math.round(minLoss)}`]);
-  }
-  const maxSlPt=(risk/(0.01*pt)+6*ktr)/3, minSlPt=4*ktr+0.01;
-  if(maxSlPt>minSlPt){
-    out.push(['SL', `${(entry+se*maxSlPt).toFixed(2)} 이내 (≤ ${Math.round(maxSlPt)}pt)`]);
-  }
-  const ktrMax=slPt/4-0.01, ktrMin=(3*slPt-risk/(0.01*pt))/6;
-  if(ktrMin<ktrMax && ktrMax>0){
-    out.push(['KTR', `${Math.max(ktrMin,0.1).toFixed(1)} ~ ${ktrMax.toFixed(1)}pt`]);
-  }
-  return out;
-}
-
 function calc(){
   const i = readInputs();
   const bad = [i.entry,i.sl,i.risk,i.ktr].some(v=>!isFinite(v)||v<=0);
@@ -212,24 +196,40 @@ function calc(){
   const slPt = Math.abs(i.sl - i.entry);
   const kCount = slPt/i.ktr;
 
-  // 진입 불가 1: 5차 진입 불가
-  if(slPt <= 4*i.ktr){
-    renderNo(`SL까지 ${slPt.toFixed(0)}pt = ${kCount.toFixed(1)}K → 5차 진입 불가 (필요: > 4K = ${(4*i.ktr).toFixed(0)}pt)`,
-             tuning(i.entry,i.risk,i.ktr,i.pt,side,slPt));
-    return;
-  }
-  const baseLoss=(3*slPt-6*i.ktr)*0.01*i.pt;
-  const scale=baseLoss>0?i.risk/baseLoss:1;
-  const lot=Math.max(round2(0.01*scale),0.01);
-  const loss=(3*slPt-6*i.ktr)*lot*i.pt;
+  // 가능한 차수 선택: 기하(SL거리) + 리스크 둘 다 통과하는 최대 prefix
+  //   1차: 항상 (slPt>0)  3차: slPt>2K  5차: slPt>4K
+  const geo=[1];
+  if(slPt > 2*i.ktr) geo.push(3);
+  if(slPt > 4*i.ktr) geo.push(5);
 
-  // 진입 불가 2: 리스크 초과
-  if(loss > i.risk*1.05){
-    renderNo(`최소 손실 $${Math.round(loss)} > 목표 $${Math.round(i.risk)} (0.01랏 균등으로도 초과)`,
-             tuning(i.entry,i.risk,i.ktr,i.pt,side,slPt));
+  let plan=null;
+  for(let n=geo.length; n>=1; n--){
+    const slots=geo.slice(0,n);
+    // 0.01랏 균등 시 SL 손실
+    const base=slots.reduce((a,s)=>a+(slPt-(s-1)*i.ktr)*0.01*i.pt,0);
+    if(base <= i.risk*1.05){
+      // 리스크 상한까지 랏 키우기 (초과 방지 위해 내림)
+      const lotCap=i.risk*0.01/base;
+      const lot=Math.max(Math.floor(lotCap*100)/100, 0.01);
+      const loss=base*lot*100;
+      plan={slots, lot, loss, full:(n===3)};
+      break;
+    }
+  }
+
+  // 1차 0.01랏조차 리스크 초과 → 진짜 불가
+  if(!plan){
+    const min1=slPt*0.01*i.pt;
+    const tune=[['리스크', `≥ $${Math.ceil(min1)} (현재 $${Math.round(i.risk)})`]];
+    const maxSlPt=i.risk/(0.01*i.pt);
+    if(maxSlPt>0.01){
+      const p=i.entry+(side==='LONG'?-1:1)*maxSlPt;
+      tune.push(['SL', `${p.toFixed(i.dp)} 이내 (≤ ${Math.round(maxSlPt)}pt)`]);
+    }
+    renderNo(`1차 0.01랏 손실 $${Math.round(min1)} > 리스크 $${Math.round(i.risk)}`, tune);
     return;
   }
-  renderOk(i, side, slPt, kCount, lot, loss);
+  renderOk(i, side, kCount, plan);
 }
 
 function renderNo(reason, tune){
@@ -255,18 +255,20 @@ function pnlAt(slots, lot, target, entry, ktr, side, pt){
   return p;
 }
 
-function renderOk(i, side, slPt, kCount, lot, loss){
-  const p = [1,3,5].map(s=>slotPrice(i.entry,s,i.ktr,side));
+function renderOk(i, side, kCount, plan){
+  const {slots, lot, loss, full} = plan;
+  const prices = slots.map(s=>slotPrice(i.entry,s,i.ktr,side));
+  const slotStr = slots.map((s,idx)=>`${s}차 ${prices[idx].toFixed(i.dp)}`).join(' / ');
+  const note = full ? '' :
+    `<div style="color:var(--muted);font-size:12px;margin-top:5px">⚠ SL·리스크 제약으로 <b style="color:var(--gold)">${slots.join('+')}차</b>만 활성 (5차 풀세팅 불가)</div>`;
   $('verdict').innerHTML =
     `<div class="verdict ok"><div class="big">✅ 진입가능 <span style="color:var(--muted);font-weight:400;font-size:13px">· ${side} · ${kCount.toFixed(1)}K</span></div>`+
-    `<div class="lots">1차 ${p[0].toFixed(i.dp)} / 3차 ${p[1].toFixed(i.dp)} / 5차 ${p[2].toFixed(i.dp)} &nbsp;<b style="color:var(--gold)">각 ${lot.toFixed(2)}랏</b> · Loss <b>$${Math.round(loss)}</b></div></div>`;
+    `<div class="lots">${slotStr} &nbsp;<b style="color:var(--gold)">각 ${lot.toFixed(2)}랏</b> · Loss <b>$${Math.round(loss)}</b></div>${note}</div>`;
 
-  // 시나리오 표
+  // 시나리오 표 — 활성 차수의 누적 조합
   const bePrice=i.entry, k1Price=i.entry+(side==='LONG'?1:-1)*i.ktr, slP=i.sl;
-  const cols=[[1],[1,3],[1,3,5]];
-  const rows=[
-    ['본절', bePrice], ['+1K', k1Price], ['SL', slP],
-  ];
+  const cols = slots.map((_,idx)=>slots.slice(0,idx+1));
+  const rows=[['본절', bePrice], ['+1K', k1Price], ['SL', slP]];
   let t = '<thead><tr><th>도달</th>'+cols.map(c=>`<th>${c.join('+')}<span class="price-lbl">${(c.length*lot).toFixed(2)}랏</span></th>`).join('')+'</tr></thead><tbody>';
   for(const [name,price] of rows){
     t += `<tr><td>${name}<span class="price-lbl">${price.toFixed(i.dp)}</span></td>`;
@@ -280,21 +282,21 @@ function renderOk(i, side, slPt, kCount, lot, loss){
   $('scenarioTable').innerHTML = t;
   $('scenarioCard').classList.remove('hide');
 
-  // 체크 카드
-  const slots=[1,3,5];
-  $('checks').innerHTML = slots.map((s,idx)=>
-    `<div class="chk ${checked[idx]?'on':''}" data-i="${idx}"><div class="box">✓</div>`+
-    `<div class="n">${s}차</div><div class="p">${p[idx].toFixed(i.dp)}</div><div class="l">${lot.toFixed(2)}랏</div></div>`
-  ).join('');
+  // 체크 카드 — 활성 차수만
+  $('checks').innerHTML = slots.map((s,idx)=>{
+    const ci=SLOT_IDX[s];
+    return `<div class="chk ${checked[ci]?'on':''}" data-ci="${ci}"><div class="box">✓</div>`+
+      `<div class="n">${s}차</div><div class="p">${prices[idx].toFixed(i.dp)}</div><div class="l">${lot.toFixed(2)}랏</div></div>`;
+  }).join('');
   $('checks').querySelectorAll('.chk').forEach(el=>{
-    el.onclick=()=>{ const k=+el.dataset.i; checked[k]=!checked[k]; save(); renderStatus(i,side,lot); calc(); };
+    el.onclick=()=>{ const ci=+el.dataset.ci; checked[ci]=!checked[ci]; save(); calc(); };
   });
-  renderStatus(i, side, lot);
+  renderStatus(i, side, lot, slots);
   $('checkCard').classList.remove('hide');
 }
 
-function renderStatus(i, side, lot){
-  const active=[1,3,5].filter((s,idx)=>checked[idx]);
+function renderStatus(i, side, lot, slots){
+  const active=slots.filter(s=>checked[SLOT_IDX[s]]);
   const totLot=active.length*lot;
   const bePrice=i.entry, k1Price=i.entry+(side==='LONG'?1:-1)*i.ktr, slP=i.sl;
   const mk=(k,price)=>{
