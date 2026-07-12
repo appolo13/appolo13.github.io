@@ -77,6 +77,8 @@
   .stepper button{flex:0 0 46px; background:var(--panel2); border:none; color:var(--txt); font-size:22px; font-weight:600; line-height:1}
   .stepper button:active{background:var(--gold); color:var(--bg)}
   .stepper .val{flex:1; display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:600; padding:11px 4px}
+  .stepper .valinput{flex:1; min-width:0; width:100%; background:transparent; border:none; color:var(--txt); font-size:17px; font-weight:600; text-align:center; padding:11px 4px; -webkit-appearance:none}
+  .stepper .valinput:focus{outline:none}
   .riskUsd{flex:0 0 auto; min-width:58px; text-align:right; color:var(--gold); font-size:15px; font-weight:600}
   .hide{display:none!important}
   .foot{text-align:center; color:var(--muted); font-size:11px; margin-top:8px; line-height:1.6}
@@ -124,7 +126,15 @@
     </div>
     <div class="riskUsd" id="riskUsd">$10</div>
   </div>
-  <div class="row"><label>KTR pt</label><input id="ktr" inputmode="decimal" placeholder="10"></div>
+  <div class="row">
+    <label>KTR pt</label>
+    <div class="stepper">
+      <button data-k="ktr" data-d="-1">−</button>
+      <input id="ktr" class="valinput" inputmode="decimal" placeholder="10">
+      <button data-k="ktr" data-d="1">+</button>
+    </div>
+    <div class="riskUsd" aria-hidden="true"></div>
+  </div>
 </div>
 
 <div class="card">
@@ -142,11 +152,6 @@
   <div class="checks" id="checks"></div>
   <div class="status" id="status" style="margin-top:12px"></div>
   <div id="slLossLine" style="margin-top:12px;padding:11px 12px;background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.25);border-radius:10px;font-size:13px;color:var(--muted);text-align:center"></div>
-</div>
-
-<div class="foot">
-  현재가는 <b>현물 시세</b> (브로커 CFD와 몇 $ 차이). 진입가는 MT5에서 확정.<br>
-  계산은 오프라인 동작. 입력값 자동 저장.
 </div>
 
 <script>
@@ -262,11 +267,9 @@ function renderOk(i, side, kCount, plan){
   const {slots, lot, loss, full} = plan;
   const prices = slots.map(s=>slotPrice(i.entry,s,i.ktr,side));
   const slotStr = slots.map((s,idx)=>`${s}차 ${prices[idx].toFixed(i.dp)}`).join(' / ');
-  const note = full ? '' :
-    `<div style="color:var(--muted);font-size:12px;margin-top:5px">⚠ SL·리스크 제약으로 <b style="color:var(--gold)">${slots.join('+')}차</b>만 활성 (5차 풀세팅 불가)</div>`;
   $('verdict').innerHTML =
     `<div class="verdict ok"><div class="big">✅ 진입가능 <span style="color:var(--muted);font-weight:400;font-size:13px">· ${side} · ${kCount.toFixed(1)}K</span></div>`+
-    `<div class="lots">${slotStr} &nbsp;<b style="color:var(--gold)">각 ${lot.toFixed(2)}랏</b> · Loss <b>$${Math.round(loss)}</b></div>${note}</div>`;
+    `<div class="lots">${slotStr} &nbsp;<b style="color:var(--gold)">각 ${lot.toFixed(2)}랏</b> · Loss <b>$${Math.round(loss)}</b></div></div>`;
 
   // 시나리오 표 — 활성 차수의 누적 조합
   const bePrice=i.entry, k1Price=i.entry+(side==='LONG'?1:-1)*i.ktr, slP=i.sl;
@@ -375,10 +378,11 @@ function load(){
 // 스텝퍼 (증거금 ±100 / 리스크% ±10, 10~50)
 document.querySelectorAll('.stepper button').forEach(btn=>{
   btn.addEventListener('click',()=>{
-    const d=+btn.dataset.d;
-    if(btn.dataset.k==='margin') margin=Math.max(100, margin + d*100);
-    else pct=Math.min(50, Math.max(10, pct + d*10));
-    renderRisk(); save(); calc();
+    const d=+btn.dataset.d, k=btn.dataset.k;
+    if(k==='margin'){ margin=Math.max(100, margin+d*100); renderRisk(); }
+    else if(k==='pct'){ pct=Math.min(50, Math.max(10, pct+d*10)); renderRisk(); }
+    else if(k==='ktr'){ let v=parseFloat($('ktr').value)||0; $('ktr').value=Math.max(1, Math.round((v+d)*10)/10); }
+    save(); calc();
   });
 });
 $('symbol').addEventListener('change',()=>{ $('priceNote').textContent=''; });
