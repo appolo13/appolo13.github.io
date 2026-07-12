@@ -20,12 +20,13 @@
   html,body{margin:0; background:var(--bg); color:var(--txt);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
     font-variant-numeric:tabular-nums}
-  body{padding:max(12px,env(safe-area-inset-top)) 12px calc(24px + env(safe-area-inset-bottom)); max-width:520px; margin:0 auto}
-  h1{font-size:17px; margin:4px 0 14px; display:flex; align-items:center; gap:8px}
-  h1 .dot{width:10px;height:10px;border-radius:50%;background:var(--gold)}
-  .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px}
-  .card h2{font-size:12px; letter-spacing:.04em; color:var(--muted); text-transform:uppercase; margin:0 0 10px}
-  .row{display:flex; align-items:center; gap:10px; margin-bottom:10px}
+  body{padding:max(10px,env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom)); max-width:520px; margin:0 auto}
+  h1{font-size:16px; margin:2px 0 10px; display:flex; align-items:center; gap:8px}
+  h1 .dot{width:9px;height:9px;border-radius:50%;background:var(--gold)}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:11px 12px; margin-bottom:9px}
+  .card h2{font-size:11px; letter-spacing:.04em; color:var(--muted); text-transform:uppercase; margin:0 0 8px}
+  .row{display:flex; align-items:center; gap:10px; margin-bottom:8px}
+  input.warn, .stepper.warn{border-color:var(--red)!important; background:rgba(248,81,73,.08)}
   .row:last-child{margin-bottom:0}
   label{flex:0 0 78px; font-size:14px; color:var(--muted)}
   input,select{flex:1; background:var(--input); border:1px solid var(--line); color:var(--txt);
@@ -96,9 +97,7 @@
     <label>종목</label>
     <select id="symbol">
       <option value="XAUUSD">XAUUSD (금)</option>
-      <option value="XAGUSD">XAGUSD (은)</option>
       <option value="US100">US100 (나스닥)</option>
-      <option value="US30">US30 (다우)</option>
     </select>
   </div>
   <div class="row">
@@ -107,8 +106,24 @@
     <button class="price-btn" id="fetchBtn">🔄 현재가</button>
   </div>
   <div class="price-note" id="priceNote"></div>
-  <div class="row"><label>추가진입</label><input id="add" inputmode="decimal" placeholder="매물대 (선택)"></div>
-  <div class="row"><label>손절가</label><input id="sl" inputmode="decimal" placeholder="4450"></div>
+  <div class="row">
+    <label>추가진입</label>
+    <div class="stepper">
+      <button data-k="add" data-d="-1">−</button>
+      <input id="add" class="valinput" inputmode="decimal" placeholder="매물대">
+      <button data-k="add" data-d="1">+</button>
+    </div>
+    <div class="riskUsd" aria-hidden="true"></div>
+  </div>
+  <div class="row">
+    <label>손절가</label>
+    <div class="stepper">
+      <button data-k="sl" data-d="-1">−</button>
+      <input id="sl" class="valinput" inputmode="decimal" placeholder="손절">
+      <button data-k="sl" data-d="1">+</button>
+    </div>
+    <div class="riskUsd" aria-hidden="true"></div>
+  </div>
   <div class="row">
     <label>증거금</label>
     <div class="stepper">
@@ -157,10 +172,8 @@
 
 <script>
 const SYMBOLS = {
-  XAUUSD:{pt:100, live:'XAU', dp:2},
-  XAGUSD:{pt:5000, live:'XAG', dp:3},
-  US100:{pt:1, live:null, dp:1},
-  US30:{pt:1, live:null, dp:1},
+  XAUUSD:{pt:100, live:'XAU', dp:2, ktr:10,  step:10,  slDef:20},
+  US100: {pt:1,   live:null,  dp:1, ktr:100, step:100, slDef:200},
 };
 const $ = id => document.getElementById(id);
 const round2 = x => Math.round(x*100)/100;
@@ -207,15 +220,22 @@ function calc(){
   if(bad){
     $('verdict').innerHTML = '<div class="verdict no"><div class="lots" style="color:var(--muted)">진입가 · 손절가 · KTR 을 입력하세요.</div></div>';
     $('scenarioCard').classList.add('hide'); $('checkCard').classList.add('hide');
+    $('add').closest('.stepper').classList.remove('warn');
     return;
   }
   const side = i.sl < i.entry ? 'LONG' : 'SHORT';
 
   // 진입 후보: 1차(진입가) + 추가(매물대, 유효할 때만)
   const cands = [{n:'1차', price:i.entry}];
-  const addValid = isFinite(i.add) && i.add>0 &&
+  const addFilled = isFinite(i.add) && i.add>0;
+  const addValid = addFilled &&
     (side==='LONG' ? (i.add < i.entry && i.add > i.sl) : (i.add > i.entry && i.add < i.sl));
   if(addValid) cands.push({n:'추가', price:i.add});
+
+  // 경고: 추가진입이 진입가에서 1K(KTR)도 안 떨어졌거나, 범위 밖일 때
+  const gap = addFilled ? Math.abs(i.entry - i.add) : Infinity;
+  const addWarn = addFilled && (!addValid || gap < i.ktr);
+  $('add').closest('.stepper').classList.toggle('warn', addWarn);
 
   const dist = e => Math.abs(e.price - i.sl);   // SL까지 pt
 
@@ -261,16 +281,23 @@ function renderNo(reason, tune){
 
 function renderOk(i, side, plan, cands, addValid){
   const {entries, lot, loss} = plan;
-  const entryStr = entries.map(e=>`${e.n} ${e.price.toFixed(i.dp)}`).join(' / ');
+  const entryStr = entries.map(e=>`${e.n} ${e.price.toFixed(i.dp)}`).join(' · ');
   $('verdict').innerHTML =
-    `<div class="verdict ok"><div class="big">✅ 진입가능 <span style="color:var(--muted);font-weight:400;font-size:13px">· ${side}</span></div>`+
-    `<div class="lots">${entryStr} &nbsp;<b style="color:var(--gold)">각 ${lot.toFixed(2)}랏</b> · 손절 시 <b>-$${Math.round(loss)}</b></div></div>`;
+    `<div class="verdict ok">`+
+    `<div class="big">✅ 진입가능 <span style="color:var(--muted);font-weight:400;font-size:13px">· ${side} · 손절 시 <b class="neg">-$${Math.round(loss)}</b></span></div>`+
+    `<div class="lots">${entryStr} · <b style="color:var(--gold)">각 ${lot.toFixed(2)}랏</b></div></div>`;
 
-  // 시나리오 표 — 진입 누적(1차 / 1차+추가) × 도달가
+  // 시나리오 표 — 1차 / 2차 / 1차+추가 × 도달가
   const beP=i.entry, k1P=i.entry+(side==='LONG'?1:-1)*i.ktr, k2P=i.entry+(side==='LONG'?1:-1)*2*i.ktr, slP=i.sl;
-  const cols = entries.map((_,idx)=>entries.slice(0,idx+1));
+  let cols, colNames;
+  if(entries.length===2){
+    cols=[[entries[0]], [entries[1]], [entries[0],entries[1]]];
+    colNames=['1차','2차','1차+추가'];
+  } else {
+    cols=[[entries[0]]]; colNames=['1차'];
+  }
   const rows=[['본절', beP], ['+1K', k1P], ['+2K', k2P], ['손절', slP]];
-  let t = '<thead><tr><th>도달</th>'+cols.map(c=>`<th>${c.map(e=>e.n).join('+')}<span class="price-lbl">${(c.length*lot).toFixed(2)}랏</span></th>`).join('')+'</tr></thead><tbody>';
+  let t = '<thead><tr><th>도달</th>'+cols.map((c,idx)=>`<th>${colNames[idx]}<span class="price-lbl">${(c.length*lot).toFixed(2)}랏</span></th>`).join('')+'</tr></thead><tbody>';
   for(const [name,price] of rows){
     t += `<tr><td>${name}<span class="price-lbl">${price.toFixed(i.dp)}</span></td>`;
     for(const c of cols){
@@ -332,18 +359,35 @@ function renderStatus(i, side, lot, entries){
     : '체결한 진입을 탭하면 손절 시 손해금액이 표시됩니다.';
 }
 
+const symCfg = () => SYMBOLS[$('symbol').value];
+function curSide(){
+  const e=parseFloat($('entry').value), s=parseFloat($('sl').value);
+  return (isFinite(e)&&isFinite(s)&&s>e) ? 'SHORT' : 'LONG';
+}
+function addDefault(){
+  const e=parseFloat($('entry').value), k=parseFloat($('ktr').value);
+  if(!isFinite(e)||!isFinite(k)) return null;
+  return +(e + (curSide()==='LONG'?-1:1)*k).toFixed(symCfg().dp);
+}
+function slDefault(){
+  const e=parseFloat($('entry').value);
+  if(!isFinite(e)) return null;
+  return +(e - symCfg().slDef).toFixed(symCfg().dp);   // 기본 LONG
+}
+
 // ── 현재가 ──
 async function fetchPrice(){
-  const sym=$('symbol').value, live=SYMBOLS[sym].live;
-  if(!live){ $('priceNote').textContent='이 종목은 현재가 미지원 (수동 입력)'; return; }
+  const sym=$('symbol').value, cfg=SYMBOLS[sym];
+  if(!cfg.live){ $('priceNote').textContent='이 종목은 현재가 미지원 (수동 입력)'; return; }
   $('priceNote').textContent='불러오는 중…';
   try{
-    const r=await fetch(`https://api.gold-api.com/price/${live}`,{cache:'no-store'});
+    const r=await fetch(`https://api.gold-api.com/price/${cfg.live}`,{cache:'no-store'});
     const d=await r.json();
-    const dp=SYMBOLS[sym].dp, price=+d.price;
-    $('entry').value = price.toFixed(dp);
-    $('sl').value = (price - 100).toFixed(dp);   // 손절 기본 -100pt (LONG 가정)
-    $('priceNote').innerHTML = `현재가 <b style="color:var(--gold)">${price.toFixed(dp)}</b> · ${d.updatedAtReadable||'now'} · SL 자동 ${(price-100).toFixed(dp)}`;
+    const price=+d.price, k=parseFloat($('ktr').value)||cfg.ktr;
+    $('entry').value = price.toFixed(cfg.dp);
+    $('add').value   = (price - k).toFixed(cfg.dp);        // 1K 아래
+    $('sl').value    = (price - cfg.slDef).toFixed(cfg.dp); // 기본 손절
+    $('priceNote').innerHTML = `현재가 <b style="color:var(--gold)">${price.toFixed(cfg.dp)}</b> · ${d.updatedAtReadable||'now'}`;
     save(); calc();
   }catch(e){
     $('priceNote').textContent='불러오기 실패 (오프라인?) — 수동 입력하세요';
@@ -365,30 +409,44 @@ function load(){
     if(Number.isFinite(s.pct)) pct=s.pct;
     if(Array.isArray(s.checked) && s.checked.length===2) checked=s.checked;
   }catch(e){}
-  if(!$('ktr').value) $('ktr').value = 10;   // KTR 기본값
+  if(!$('ktr').value) $('ktr').value = symCfg().ktr;   // 종목별 KTR 기본값
   renderRisk();
 }
 
 ['symbol','entry','add','sl','ktr'].forEach(k=>{
   $(k).addEventListener('input',()=>{ save(); calc(); });
 });
-// 포커스 시 기존값 비우고 바로 숫자 입력 (안 고치고 빠져나가면 복원)
-['entry','add','sl','ktr'].forEach(k=>{
+// entry·ktr: 포커스 시 비우고 바로 입력 (안 고치면 복원)
+['entry','ktr'].forEach(k=>{
   const el=$(k);
   el.addEventListener('focus',()=>{ el.dataset.prev=el.value; el.value=''; });
   el.addEventListener('blur',()=>{ if(el.value===''&&el.dataset.prev){ el.value=el.dataset.prev; save(); calc(); } });
 });
-// 스텝퍼 (증거금 ±100 / 리스크% ±10, 10~50)
+// add·sl: 포커스 시 비어있으면 자동 기본값 채움 (add=진입-KTR, sl=진입-기본손절)
+$('add').addEventListener('focus',()=>{ if($('add').value===''){ const v=addDefault(); if(v!=null){ $('add').value=v; save(); calc(); } } });
+$('sl').addEventListener('focus',()=>{ if($('sl').value===''){ const v=slDefault(); if(v!=null){ $('sl').value=v; save(); calc(); } } });
+
+// 스텝퍼
 document.querySelectorAll('.stepper button').forEach(btn=>{
   btn.addEventListener('click',()=>{
-    const d=+btn.dataset.d, k=btn.dataset.k;
+    const d=+btn.dataset.d, k=btn.dataset.k, cfg=symCfg();
     if(k==='margin'){ margin=Math.max(100, margin+d*100); renderRisk(); }
     else if(k==='pct'){ pct=Math.min(50, Math.max(10, pct+d*10)); renderRisk(); }
     else if(k==='ktr'){ let v=parseFloat($('ktr').value)||0; $('ktr').value=Math.max(1, Math.round((v+d)*10)/10); }
+    else if(k==='add'||k==='sl'){
+      let v=parseFloat($(k).value);
+      if(!isFinite(v)) v=(k==='add'?addDefault():slDefault()) ?? 0;
+      $(k).value=(v + d*cfg.step).toFixed(cfg.dp);
+    }
     save(); calc();
   });
 });
-$('symbol').addEventListener('change',()=>{ $('priceNote').textContent=''; });
+// 종목 변경 → 값 초기화 + KTR 기본값
+$('symbol').addEventListener('change',()=>{
+  $('entry').value=''; $('add').value=''; $('sl').value='';
+  $('ktr').value=symCfg().ktr; $('priceNote').textContent='';
+  save(); calc();
+});
 $('fetchBtn').addEventListener('click', fetchPrice);
 
 load(); calc();
