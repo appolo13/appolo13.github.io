@@ -113,7 +113,7 @@
       <input id="add" class="valinput" inputmode="decimal" placeholder="매물대">
       <button data-k="add" data-d="1">+</button>
     </div>
-    <div class="riskUsd" aria-hidden="true"></div>
+    <div class="riskUsd" id="addDiff"></div>
   </div>
   <div class="row">
     <label>손절가</label>
@@ -122,7 +122,7 @@
       <input id="sl" class="valinput" inputmode="decimal" placeholder="손절">
       <button data-k="sl" data-d="1">+</button>
     </div>
-    <div class="riskUsd" aria-hidden="true"></div>
+    <div class="riskUsd" id="slDiff"></div>
   </div>
   <div class="row">
     <label>증거금</label>
@@ -214,7 +214,17 @@ function pnlAt(entries, lot, target, side, pt){
   return p;
 }
 
+function updateDiffs(){
+  const e=parseFloat($('entry').value);
+  const set=(id,inp)=>{
+    const p=parseFloat($(inp).value);
+    $(id).textContent = (isFinite(e)&&isFinite(p)) ? ((p-e>=0?'+':'')+Math.round(p-e)+'pt') : '';
+  };
+  set('addDiff','add'); set('slDiff','sl');
+}
+
 function calc(){
+  updateDiffs();
   const i = readInputs();
   const bad = [i.entry,i.sl,i.ktr].some(v=>!isFinite(v)||v<=0);
   if(bad){
