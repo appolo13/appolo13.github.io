@@ -1,7 +1,7 @@
 // KTR 리스크 계산기 서비스워커
 // 문서(index)는 네트워크 우선 → 온라인이면 항상 최신. 오프라인이면 캐시.
 // 아이콘 등 정적 자산은 캐시 우선.
-const CACHE = 'ktr-risk-v11';
+const CACHE = 'ktr-risk-v12';
 const ASSETS = [
   './',
   './index.html',

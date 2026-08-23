@@ -90,7 +90,7 @@
 </style>
 </head>
 <body>
-<h1><span class="dot"></span> KTR 리스크 계산기 <span class="ver">v11</span></h1>
+<h1><span class="dot"></span> KTR 리스크 계산기 <span class="ver">v12 분할</span></h1>
 
 <div class="card">
   <h2>입력</h2>
@@ -135,14 +135,14 @@
     <div class="riskUsd" aria-hidden="true"></div>
   </div>
   <div class="row">
-    <label>리스크</label>
-    <div class="stepper">
-      <button data-k="pct" data-d="-1">−</button>
-      <div class="val" id="pctVal">10%</div>
-      <button data-k="pct" data-d="1">+</button>
+    <label>등급</label>
+    <div class="stepper" style="flex:1">
+      <button id="gradeA" style="flex:1;font-size:15px;font-weight:700">A · 2%</button>
+      <button id="gradeB" style="flex:1;font-size:15px;font-weight:700">B · 1%</button>
     </div>
-    <div class="riskUsd" id="riskUsd">$10</div>
+    <div class="riskUsd" id="riskUsd">$40</div>
   </div>
+  <div class="price-note" id="gradeNote">A=2트리거 겹침 / B=1트리거 · 눌림추가·분할 자동계산</div>
   <div class="row">
     <label>KTR pt</label>
     <div class="stepper">
@@ -181,15 +181,24 @@ const round2 = x => Math.round(x*100)/100;
 const fmtUsd = v => (v>=0?'+$':'-$') + Math.abs(Math.round(v)).toLocaleString();
 const cls = v => v>0?'pos':(v<0?'neg':'zero');
 
-let checked = [true,false]; // [1차, 추가] 체결 여부
+let checked = [true,false]; // [1차, 눌림추가] 체결 여부
 let margin = 100;   // 증거금 $ (100 단위)
-let pct = 10;       // 리스크 % (10 단위, 10~50)
+let grade = 'A';    // 등급 A(2%) / B(1%)
+const gradePct = { A:2, B:1 };
+let pct = gradePct[grade];
 
 const riskUsd = () => Math.round(margin * pct / 100);
 
+// 짝수 랏(0.02 단위)으로 내림 — 분할 절반이 딱 나뉘게
+const evenLot = x => Math.max(Math.floor(x/0.02)*0.02, 0.02);
+
 function renderRisk(){
   $('marginVal').textContent = '$' + margin.toLocaleString();
-  $('pctVal').textContent = pct + '%';
+  pct = gradePct[grade];
+  $('gradeA').style.background = grade==='A' ? 'var(--gold)' : '';
+  $('gradeA').style.color = grade==='A' ? 'var(--bg)' : 'var(--txt)';
+  $('gradeB').style.background = grade==='B' ? 'var(--gold)' : '';
+  $('gradeB').style.color = grade==='B' ? 'var(--bg)' : 'var(--txt)';
   $('riskUsd').textContent = '$' + riskUsd().toLocaleString();
 }
 
@@ -250,30 +259,25 @@ function calc(){
 
   const dist = e => Math.abs(e.price - i.sl);   // SL까지 pt
 
-  // 리스크 안에서 가능한 최대 prefix (1차만 / 1차+추가)
-  let plan=null;
-  for(let n=cands.length; n>=1; n--){
-    const es=cands.slice(0,n);
-    const base=es.reduce((a,e)=>a+dist(e)*0.01*i.pt,0);   // 0.01랏 손실
-    if(base <= i.risk*1.05){
-      const lot=Math.max(Math.floor((i.risk*0.01/base)*100)/100, 0.01);
-      const loss=base*lot*100;
-      plan={entries:es, lot, loss};
-      break;
-    }
-  }
+  // 랏 = 1차 진입만으로 리스크% 맞춤 (SL거리 기준), 짝수(0.02)로 내림
+  // 눌림추가는 평단 개선이라 리스크 크게 안 늘어 → 1차 SL거리로 사이징
+  const slDist1 = dist(cands[0]);              // 1차 진입~SL pt
+  const rawLot = i.risk / (slDist1 * i.pt);    // 리스크% 맞추는 랏
+  const lot = evenLot(rawLot);
+  const loss = slDist1 * i.pt * lot;
 
-  if(!plan){
-    const min1=dist(cands[0])*0.01*i.pt;
-    const tune=[['리스크', `≥ $${Math.ceil(min1)} (현재 $${Math.round(i.risk)})`]];
-    const maxSlPt=i.risk/(0.01*i.pt);
+  if(rawLot < 0.02){
+    const min = slDist1*0.02*i.pt;
+    const tune=[['증거금', `≥ $${Math.ceil(min/pct*100)} (현재 $${margin})`]];
+    const maxSlPt=i.risk/(0.02*i.pt);
     if(maxSlPt>0.01){
       const p=i.entry+(side==='LONG'?-1:1)*maxSlPt;
       tune.push(['SL', `${p.toFixed(i.dp)} 이내 (≤ ${Math.round(maxSlPt)}pt)`]);
     }
-    renderNo(`1차 0.01랏 손실 $${Math.round(min1)} > 리스크 $${Math.round(i.risk)}`, tune);
+    renderNo(`최소 0.02랏 손실 $${Math.round(min)} > ${grade}급 리스크 $${Math.round(i.risk)}`, tune);
     return;
   }
+  const plan={entries:cands, lot, loss};
   renderOk(i, side, plan, cands, addValid);
 }
 
@@ -292,11 +296,17 @@ function renderNo(reason, tune){
 
 function renderOk(i, side, plan, cands, addValid){
   const {entries, lot, loss} = plan;
-  const entryStr = entries.map(e=>`${e.n} ${e.price.toFixed(i.dp)}`).join(' · ');
+  const half = round2(lot/2);
+  const tp1P = i.entry + (side==='LONG'?1:-1)*i.ktr;   // 절반익절 +1.0K
   $('verdict').innerHTML =
     `<div class="verdict ok">`+
-    `<div class="big">✅ 진입가능 <span style="color:var(--muted);font-weight:400;font-size:13px">· ${side} · 손절 시 <b class="neg">-$${Math.round(loss)}</b></span></div>`+
-    `<div class="lots">${entryStr} · <b style="color:var(--gold)">각 ${lot.toFixed(2)}랏</b></div></div>`;
+    `<div class="big">✅ ${grade}급 진입 <span style="color:var(--muted);font-weight:400;font-size:13px">· ${side} · 손절 시 <b class="neg">-$${Math.round(loss)}</b></span></div>`+
+    `<div class="lots" style="line-height:1.7">`+
+    `<b style="color:var(--gold)">① 진입 ${lot.toFixed(2)}랏</b> @ ${i.entry.toFixed(i.dp)} · SL ${i.sl.toFixed(i.dp)}<br>`+
+    `<span style="color:var(--muted)">② 눌림오면 +${lot.toFixed(2)}랏 추가 (→ 평단 개선, SL 평단−2.5K로)<br>`+
+    `③ 절반익절 +1.0K(${tp1P.toFixed(i.dp)}) → <b style="color:var(--green)">${half.toFixed(2)}랏 청산</b> · 나머지 평단스탑 러너<br>`+
+    `④ 반대신호에 남은 청산</span>`+
+    `</div></div>`;
 
   // 시나리오 표 — 1차 / 2차 / 1차+추가 × 도달가
   const beP=i.entry, k1P=i.entry+(side==='LONG'?1:-1)*i.ktr, k2P=i.entry+(side==='LONG'?1:-1)*2*i.ktr, slP=i.sl;
@@ -409,7 +419,7 @@ async function fetchPrice(){
 function save(){
   const s={};
   ['symbol','entry','add','sl','ktr'].forEach(k=>s[k]=$(k).value);
-  s.margin=margin; s.pct=pct; s.checked=checked;
+  s.margin=margin; s.grade=grade; s.checked=checked;
   localStorage.setItem('ktr_risk', JSON.stringify(s));
 }
 function load(){
@@ -417,7 +427,7 @@ function load(){
     const s=JSON.parse(localStorage.getItem('ktr_risk')||'{}');
     ['symbol','entry','add','sl','ktr'].forEach(k=>{ if(s[k]!=null&&s[k]!=='') $(k).value=s[k]; });
     if(Number.isFinite(s.margin)) margin=s.margin;
-    if(Number.isFinite(s.pct)) pct=s.pct;
+    if(s.grade==='A'||s.grade==='B') grade=s.grade;
     if(Array.isArray(s.checked) && s.checked.length===2) checked=s.checked;
   }catch(e){}
   if(!$('ktr').value) $('ktr').value = symCfg().ktr;   // 종목별 KTR 기본값
@@ -459,6 +469,9 @@ $('symbol').addEventListener('change',()=>{
   save(); calc();
 });
 $('fetchBtn').addEventListener('click', fetchPrice);
+// 등급 버튼 (A 2% / B 1%)
+$('gradeA').addEventListener('click',()=>{ grade='A'; renderRisk(); save(); calc(); });
+$('gradeB').addEventListener('click',()=>{ grade='B'; renderRisk(); save(); calc(); });
 
 load(); calc();
 
